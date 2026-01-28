@@ -203,6 +203,74 @@ function Remove-SensitiveData {
     return $sanitized
 }
 
+# Helper function: Format tool details for enhanced logging
+# Returns formatted string with details for specific tools (Task, Bash, TodoWrite, AskUserQuestion, Skill)
+# Other tools return just their name
+function Format-ToolDetail {
+    param([hashtable]$Tool)
+
+    $name = $Tool.name
+    $toolInput = $Tool.input
+    $toolResult = $Tool.result
+
+    switch ($name) {
+        'Task' {
+            $desc = ""
+            if ($toolInput -and $toolInput.PSObject.Properties.Name -contains "description") {
+                $desc = $toolInput.description
+            }
+            return "Task: $desc"
+        }
+        'Bash' {
+            $desc = ""
+            if ($toolInput -and $toolInput.PSObject.Properties.Name -contains "description") {
+                $desc = $toolInput.description
+            }
+            return "Bash: $desc"
+        }
+        'TodoWrite' {
+            $lines = @("Update Todos")
+            if ($toolInput -and $toolInput.PSObject.Properties.Name -contains "todos") {
+                foreach ($todo in $toolInput.todos) {
+                    $statusVal = $todo.status
+                    $icon = switch ($statusVal) {
+                        'completed' { '[x]' }
+                        'in_progress' { '[*]' }
+                        'pending' { '[ ]' }
+                        default { '[-]' }
+                    }
+                    $lines += "$icon $($todo.content)"
+                }
+            }
+            return ($lines -join "`n")
+        }
+        'AskUserQuestion' {
+            $lines = @("AskUserQuestion")
+            if ($toolResult) {
+                $resultStr = if ($toolResult -is [string]) { $toolResult } else {
+                    try { $toolResult | ConvertTo-Json -Compress -Depth 3 } catch { "$toolResult" }
+                }
+                $sanitized = Remove-SensitiveData -Content $resultStr
+                if ($sanitized.Length -gt 500) {
+                    $sanitized = $sanitized.Substring(0, 500) + "..."
+                }
+                $lines += "Out: $sanitized"
+            }
+            return ($lines -join "`n")
+        }
+        'Skill' {
+            $skillName = ""
+            if ($toolInput -and $toolInput.PSObject.Properties.Name -contains "skill") {
+                $skillName = $toolInput.skill
+            }
+            return "Skill: /$skillName"
+        }
+        default {
+            return $name
+        }
+    }
+}
+
 # Helper function: Sanitize text for filename
 function Get-KebabCase {
     param([string]$Text, [int]$MaxWords = 6)
@@ -640,6 +708,7 @@ function Get-ResponseTurnsSinceLastPrompt {
 
         # Collect all assistant turns AFTER the last user prompt
         $turnNumber = 0
+        $pendingTools = @{}  # Track tool_use IDs for matching with tool_results
         for ($i = $lastUserPromptIndex + 1; $i -lt $lines.Count; $i++) {
             $line = $lines[$i]
             if ([string]::IsNullOrWhiteSpace($line)) { continue }
@@ -672,10 +741,21 @@ function Get-ResponseTurnsSinceLastPrompt {
                                     }
                                     elseif ($block.PSObject.Properties.Name -contains "type" -and $block.type -eq "tool_use") {
                                         $toolName = $block.name
-                                        if ($toolsUsed -notcontains $toolName) {
-                                            $toolsUsed += $toolName
+                                        $toolId = if ($block.PSObject.Properties.Name -contains "id") { $block.id } else { "" }
+                                        $toolInputData = if ($block.PSObject.Properties.Name -contains "input") { $block.input } else { $null }
+                                        # Store detailed tool info for enhanced logging
+                                        $toolDetail = @{
+                                            name = $toolName
+                                            id = $toolId
+                                            input = $toolInputData
+                                            result = $null
                                         }
-                                        # Also add to aggregated tools list
+                                        $toolsUsed += $toolDetail
+                                        # Track for tool_result matching
+                                        if ($toolId) {
+                                            $pendingTools[$toolId] = $toolDetail
+                                        }
+                                        # Also add to aggregated tools list (names only)
                                         if ($result.allTools -notcontains $toolName) {
                                             $result.allTools += $toolName
                                         }
@@ -693,6 +773,35 @@ function Get-ResponseTurnsSinceLastPrompt {
                             turnNumber = $turnNumber
                         }
                         $result.found = $true
+                    }
+                }
+                # Process user messages to extract tool_results (for AskUserQuestion output, etc.)
+                elseif ($entry.PSObject.Properties.Name -contains "type" -and $entry.type -eq "user") {
+                    if ($entry.PSObject.Properties.Name -contains "message") {
+                        $userMsg = $entry.message
+                        if ($userMsg.PSObject.Properties.Name -contains "content" -and $userMsg.content -is [array]) {
+                            foreach ($resultBlock in $userMsg.content) {
+                                if ($resultBlock.PSObject.Properties.Name -contains "type" -and $resultBlock.type -eq "tool_result") {
+                                    $toolUseId = if ($resultBlock.PSObject.Properties.Name -contains "tool_use_id") { $resultBlock.tool_use_id } else { "" }
+                                    if ($toolUseId -and $pendingTools.ContainsKey($toolUseId)) {
+                                        $resultContent = ""
+                                        if ($resultBlock.PSObject.Properties.Name -contains "content") {
+                                            if ($resultBlock.content -is [string]) {
+                                                $resultContent = $resultBlock.content
+                                            }
+                                            elseif ($resultBlock.content -is [array]) {
+                                                foreach ($innerBlock in $resultBlock.content) {
+                                                    if ($innerBlock.PSObject.Properties.Name -contains "text") {
+                                                        $resultContent += $innerBlock.text
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        $pendingTools[$toolUseId].result = $resultContent
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1185,7 +1294,30 @@ $sanitizedPrompt
                 $turnContent = Remove-SensitiveData -Content $turn.content
                 $toolNote = ""
                 if ($turn.tools -and $turn.tools.Count -gt 0) {
-                    $toolNote = "`n`n_Tools used: $($turn.tools -join ', ')_"
+                    $detailedToolNames = @('Task', 'Bash', 'TodoWrite', 'AskUserQuestion', 'Skill')
+                    $simpleToolNames = @()
+                    $detailedLines = @()
+                    foreach ($tool in $turn.tools) {
+                        if ($tool -is [hashtable]) {
+                            if ($tool.name -in $detailedToolNames) {
+                                $detailedLines += (Format-ToolDetail -Tool $tool)
+                            } else {
+                                $simpleToolNames += $tool.name
+                            }
+                        } else {
+                            $simpleToolNames += $tool
+                        }
+                    }
+                    # Deduplicate simple tool names
+                    $simpleToolNames = @($simpleToolNames | Select-Object -Unique)
+                    $toolParts = @()
+                    if ($simpleToolNames.Count -gt 0) {
+                        $toolParts += "_Tools used: $($simpleToolNames -join ', ')_"
+                    }
+                    $toolParts += $detailedLines
+                    if ($toolParts.Count -gt 0) {
+                        $toolNote = "`n`n" + ($toolParts -join "`n`n")
+                    }
                 }
 
                 # Only add turn header if there's content or tools

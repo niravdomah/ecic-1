@@ -4,13 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Template repository** for building frontend applications with:
-- Next.js 16 (App Router) + React 19 + TypeScript 5 (strict)
-- Tailwind CSS 4 + Shadcn UI (via MCP server)
-- Vitest + React Testing Library
-- Production-ready API client for OpenAPI-defined REST endpoints
+**InvestInsight** - A comprehensive portfolio reporting and data stewardship platform for investment teams to prepare accurate weekly and monthly reports from multiple data sources.
 
-Users clone this template and use Claude Code to generate features, components, and API integrations.
+**Tech Stack:** Next.js 16 (App Router) + React 19 + TypeScript 5 (strict) + Tailwind CSS 4 + Shadcn UI
+
+**Backend API:** Defined in `documentation/` (OpenAPI 3.0 specs):
+- `MonthlyAPIDefinition.yaml` - Monthly process workflow and approvals
+- `FileImporterAPIDefinition.yaml` - File upload and import management
+- `DataMaintenanceAPIDefinition.yaml` - Reference data and maintenance screens
+
+Connects to a live REST API for all backend operations.
+
+**Planned Epics:**
+1. Core Navigation & Start Page - Home page, navigation, batch management
+2. File Upload & Import Management - Portfolio and other file uploads with SFTP
+3. Data Confirmation & Validation - Consolidated data completeness checks
+4. Maintenance Screens - Financial Data - Instruments, prices, durations, betas, ratings
+5. Workflow & Approvals - Three-level approval process with rejection handling
+6. Comments, Logs & Administration - Report comments, process logs, system config
 
 ## Repository Structure
 

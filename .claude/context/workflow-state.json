@@ -1,0 +1,36 @@
+{
+  "featureName": "InvestInsight-Product-Guide-v2",
+  "specPath": "documentation\\InvestInsight-Product-Guide-v2.md",
+  "currentEpic": 1,
+  "currentPhase": "SPECIFY",
+  "epics": {
+    "1": {
+      "phase": "SPECIFY"
+    }
+  },
+  "history": [
+    {
+      "timestamp": "2026-01-27T11:04:53.502Z",
+      "epic": 1,
+      "from": "NONE",
+      "to": "DESIGN",
+      "note": "Workflow initialized"
+    },
+    {
+      "timestamp": "2026-01-27T11:18:42.496Z",
+      "epic": 1,
+      "from": "DESIGN",
+      "to": "PLAN",
+      "story": null
+    },
+    {
+      "timestamp": "2026-01-28T10:53:34.801Z",
+      "epic": 1,
+      "from": "PLAN",
+      "to": "SPECIFY",
+      "story": null
+    }
+  ],
+  "lastUpdated": "2026-01-28T10:53:34.801Z",
+  "totalEpics": 6
+}
